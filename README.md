@@ -42,7 +42,7 @@ Requires Go 1.26+. No database or network access needed for any of the above.
 
 ## License
 
-Not yet decided. The license is an ADR in `helix-atlas`; until it is accepted, no license is granted and all rights are reserved.
+Proprietary, all rights reserved. See [LICENSE](LICENSE).
 
 ## Contributing
 
