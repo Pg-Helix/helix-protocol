@@ -1,0 +1,110 @@
+// Package conformance loads the fixtures in fixtures/ and checks them against
+// the generated types (gen/go/types.go). It is the drift check between
+// openapi/openapi.yaml and any hand-maintained consumer: every component
+// consumed across repos round-trips through exactly this fixture set.
+package conformance
+
+import (
+	"embed"
+	"encoding/json"
+	"reflect"
+	"testing"
+
+	protocol "github.com/Pg-Helix/helix-protocol/gen/go"
+)
+
+//go:embed fixtures/*.json
+var fixturesFS embed.FS
+
+func load(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := fixturesFS.ReadFile("fixtures/" + name)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return b
+}
+
+func TestJobContractValid(t *testing.T) {
+	var job protocol.JobContract
+	if err := json.Unmarshal(load(t, "job_valid.json"), &job); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if job.Tenant == "" || job.JobId.String() == "00000000-0000-0000-0000-000000000000" ||
+		job.SourceDigest == "" || job.PipelineVersion == "" || job.TargetModel == "" ||
+		job.TraceId == "" {
+		t.Fatalf("required field came back zero-valued: %+v", job)
+	}
+	if job.Attempts != 1 || job.LeaseEpoch != 3 {
+		t.Fatalf("unexpected attempts/lease_epoch: %+v", job)
+	}
+
+	// Round-trip: marshal back and re-parse must yield an identical struct,
+	// or the generated type silently drops/renames a field relative to the
+	// schema that produced the fixture.
+	b, err := json.Marshal(job)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var roundTripped protocol.JobContract
+	if err := json.Unmarshal(b, &roundTripped); err != nil {
+		t.Fatalf("unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(job, roundTripped) {
+		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", roundTripped, job)
+	}
+}
+
+// TestJobContractMissingRequiredField documents a real gap rather than
+// pretending we validate against the JSON Schema: encoding/json does not
+// enforce "required", so a missing trace_id silently decodes as "". A
+// consumer in another language that does enforce required fields (e.g. a
+// JSON Schema validator reading this same fixture) is the actual conformance
+// check for "is this fixture invalid" — this test only proves the Go side's
+// known blind spot, so nothing downstream mistakes silent zero-values for
+// validation.
+func TestJobContractMissingRequiredField(t *testing.T) {
+	var job protocol.JobContract
+	if err := json.Unmarshal(load(t, "job_missing_trace_id.json"), &job); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if job.TraceId != "" {
+		t.Fatalf("expected trace_id to decode as zero-value, got %q", job.TraceId)
+	}
+}
+
+func TestPublishRejectionStaleSource(t *testing.T) {
+	var e protocol.ErrorResponse
+	if err := json.Unmarshal(load(t, "publish_rejection_stale_source.json"), &e); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if protocol.PublishRejectionCode(e.Code) != protocol.StaleSource {
+		t.Fatalf("code = %q, want %q", e.Code, protocol.StaleSource)
+	}
+	if e.TraceId == "" {
+		t.Fatal("trace_id must not be empty")
+	}
+}
+
+func TestChunkIdentityValid(t *testing.T) {
+	var chunk protocol.ChunkIdentity
+	if err := json.Unmarshal(load(t, "chunk_identity_valid.json"), &chunk); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if chunk.Status != protocol.Ready {
+		t.Fatalf("status = %q, want %q", chunk.Status, protocol.Ready)
+	}
+}
+
+func TestAnswerResponseValid(t *testing.T) {
+	var ans protocol.AnswerResponse
+	if err := json.Unmarshal(load(t, "answer_response_valid.json"), &ans); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if ans.Answer == "" {
+		t.Fatal("answer must not be empty")
+	}
+	if len(ans.Citations) != 1 || ans.Citations[0].ChunkId == "" {
+		t.Fatalf("expected one well-formed citation, got %+v", ans.Citations)
+	}
+}

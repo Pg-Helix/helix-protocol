@@ -1,0 +1,5 @@
+{
+  "code": "stale_source",
+  "message": "source row digest changed since job was enqueued",
+  "trace_id": "trace-0002"
+}
