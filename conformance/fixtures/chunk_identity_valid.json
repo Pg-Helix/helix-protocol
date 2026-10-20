@@ -1,0 +1,7 @@
+{
+  "tenant": "acme",
+  "source_id": "doc-knowledge-base-42",
+  "source_digest": "sha256:9f1c3a2b7d8e4f501a2b3c4d5e6f7081",
+  "chunk_index": 0,
+  "status": "ready"
+}
