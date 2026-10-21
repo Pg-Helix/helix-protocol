@@ -31,12 +31,16 @@ func TestJobContractValid(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if job.Tenant == "" || job.JobId.String() == "00000000-0000-0000-0000-000000000000" ||
-		job.SourceDigest == "" || job.PipelineVersion == "" || job.TargetModel == "" ||
+		job.SourceId == "" || len(job.SourceKey) == 0 || job.SourceDigest == "" ||
+		job.SourceGeneration == 0 || job.PipelineVersion == "" || job.TargetModel == "" ||
 		job.TraceId == "" {
 		t.Fatalf("required field came back zero-valued: %+v", job)
 	}
 	if job.Attempts != 1 || job.LeaseEpoch != 3 {
 		t.Fatalf("unexpected attempts/lease_epoch: %+v", job)
+	}
+	if err := job.Validate(); err != nil {
+		t.Fatalf("Validate() on a genuinely valid fixture: %v", err)
 	}
 
 	// Round-trip: marshal back and re-parse must yield an identical struct,
@@ -55,14 +59,11 @@ func TestJobContractValid(t *testing.T) {
 	}
 }
 
-// TestJobContractMissingRequiredField documents a real gap rather than
-// pretending we validate against the JSON Schema: encoding/json does not
-// enforce "required", so a missing trace_id silently decodes as "". A
-// consumer in another language that does enforce required fields (e.g. a
-// JSON Schema validator reading this same fixture) is the actual conformance
-// check for "is this fixture invalid" — this test only proves the Go side's
-// known blind spot, so nothing downstream mistakes silent zero-values for
-// validation.
+// TestJobContractMissingRequiredField documents a real gap: encoding/json
+// does not enforce "required" on its own, so a missing trace_id silently
+// decodes as "". That is exactly why JobContract.Validate() (gen/go/validate.go)
+// exists — the next test proves it actually rejects this same fixture, so a
+// caller isn't left trusting silent zero-value decoding as validation.
 func TestJobContractMissingRequiredField(t *testing.T) {
 	var job protocol.JobContract
 	if err := json.Unmarshal(load(t, "job_missing_trace_id.json"), &job); err != nil {
@@ -70,6 +71,19 @@ func TestJobContractMissingRequiredField(t *testing.T) {
 	}
 	if job.TraceId != "" {
 		t.Fatalf("expected trace_id to decode as zero-value, got %q", job.TraceId)
+	}
+}
+
+// TestJobContractValidateRejectsMissingField is the real required-field
+// enforcement the review asked for: the same fixture decodes "successfully"
+// (previous test) but Validate() must still reject it.
+func TestJobContractValidateRejectsMissingField(t *testing.T) {
+	var job protocol.JobContract
+	if err := json.Unmarshal(load(t, "job_missing_trace_id.json"), &job); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := job.Validate(); err == nil {
+		t.Fatal("Validate() must reject a job missing trace_id, got nil error")
 	}
 }
 

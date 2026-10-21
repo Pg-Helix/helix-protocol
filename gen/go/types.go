@@ -42,6 +42,7 @@ const (
 
 // Defines values for PublishRejectionCode.
 const (
+	DeadLettered     PublishRejectionCode = "dead_lettered"
 	ModelMismatch    PublishRejectionCode = "model_mismatch"
 	PipelineMismatch PublishRejectionCode = "pipeline_mismatch"
 	StaleLease       PublishRejectionCode = "stale_lease"
@@ -96,19 +97,28 @@ type IngestStatus struct {
 	Status         PseudoColumnStatus `json:"status"`
 }
 
-// JobContract RFC-0003 job fields. Every job row carries all of these.
+// JobContract RFC-0003 job fields. Every job row carries all of these. source_id/source_key identify which registered row this job is for (ADR-0006, helix-atlas: the prior shape carried only source_digest, a hash, which cannot tell a worker which row to read via helix_ai.get_job_input). source_generation is the row-incarnation fence (ADR-0006 decision 3): frozen at enqueue time like source_digest, it distinguishes a job issued against a row from one issued against a since-deleted-and-reinserted row that happens to share the same key and digest.
 type JobContract struct {
-	Attempts int       `json:"attempts"`
-	Deadline time.Time `json:"deadline"`
+	Attempts int `json:"attempts"`
+
+	// Deadline NULL until claim_job leases this job; gates re-leasing only, never enforced by killing the worker.
+	Deadline *time.Time `json:"deadline"`
 
 	// JobId Immutable; a retry reuses it.
-	JobId           openapi_types.UUID `json:"job_id"`
-	LeaseEpoch      int                `json:"lease_epoch"`
-	PipelineVersion string             `json:"pipeline_version"`
-	SourceDigest    string             `json:"source_digest"`
-	TargetModel     string             `json:"target_model"`
-	Tenant          string             `json:"tenant"`
-	TraceId         string             `json:"trace_id"`
+	JobId            openapi_types.UUID `json:"job_id"`
+	LeaseEpoch       int                `json:"lease_epoch"`
+	PipelineVersion  string             `json:"pipeline_version"`
+	SourceDigest     string             `json:"source_digest"`
+	SourceGeneration int                `json:"source_generation"`
+
+	// SourceId helix_ai.source.id (bigint
+	SourceId string `json:"source_id"`
+
+	// SourceKey One entry per registered key column, {column_name: column_value::text} — the same shape helix_ai._source_key_expr/_row_key_jsonb build kernel-side.
+	SourceKey   map[string]string `json:"source_key"`
+	TargetModel string            `json:"target_model"`
+	Tenant      string            `json:"tenant"`
+	TraceId     string            `json:"trace_id"`
 }
 
 // Model defines model for Model.
@@ -133,7 +143,7 @@ type ModelMetric string
 // PseudoColumnStatus defines model for PseudoColumnStatus.
 type PseudoColumnStatus string
 
-// PublishRejectionCode defines model for PublishRejectionCode.
+// PublishRejectionCode dead_lettered (ADR-0006 decision 5) is returned when the job's dead_letter flag is set — a worker whose job already exhausted its retry budget can no longer publish successfully, even if it still presents the lease_epoch it last claimed under.
 type PublishRejectionCode string
 
 // SearchResult defines model for SearchResult.
