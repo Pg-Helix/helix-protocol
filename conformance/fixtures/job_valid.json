@@ -1,7 +1,10 @@
 {
   "tenant": "acme",
   "job_id": "9b1f3e2a-3c1d-4b1a-8e2f-1a2b3c4d5e6f",
+  "source_id": "42",
+  "source_key": { "id": "1" },
   "source_digest": "sha256:3f786850e387550fdab836ed7e6dc881de23001b",
+  "source_generation": 1,
   "pipeline_version": "embed-v1",
   "target_model": "local-mock-embed-v1",
   "deadline": "2026-10-20T12:30:00Z",

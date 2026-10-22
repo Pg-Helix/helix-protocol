@@ -29,5 +29,16 @@ operation, not a bug.
 | `model_mismatch` | `target_model` no longer matches the job | no |
 | `pipeline_mismatch` | `pipeline_version` no longer matches the job | no |
 | `tombstoned` | Source key was deleted; publish is rejected to prevent resurrection | no |
+| `dead_lettered` | Job already exhausted its retry budget (`dead_letter = true`); a worker that held the lease up to that point cannot publish successfully even at a still-current epoch | no |
 
-Source of truth: `helix-atlas` `rfcs/0003-pseudo-column-lifecycle-and-worker-protocol.md`.
+Source of truth: `helix-atlas` `rfcs/0003-pseudo-column-lifecycle-and-worker-protocol.md`, `decisions/0006-k2-k3-security-and-contract-corrections.md`.
+
+## Bounded-input codes (ADR-0006, helix-atlas)
+
+Returned by `helix_ai.get_job_input`, the function that gives a worker its authorized model input
+for a claimed job (RFC-0001/0002 never specified this contract; ADR-0006 decision 7 fills the gap).
+
+| Code | Meaning | Retryable |
+|---|---|---|
+| `lease_invalid` | `job_id`/`lease_epoch` do not identify a job the caller currently holds the lease on (wrong epoch, completed, or dead-lettered) | no |
+| `input_too_large` | Current source row exceeds the documented size cap (1 MiB via `pg_column_size`); rejected rather than silently truncated | no |

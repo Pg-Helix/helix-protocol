@@ -1,0 +1,5 @@
+claim_job(p_target_model text, p_lease_seconds integer DEFAULT 30, p_max_attempts integer DEFAULT 5) RETURNS helix_ai.job
+get_job_input(p_job_id uuid, p_lease_epoch integer) RETURNS jsonb
+publish_result(p_job_id uuid, p_lease_epoch integer, p_expected_digest text, p_expected_model text, p_expected_pipeline text, p_value jsonb) RETURNS helix_ai.publish_outcome
+register_source(p_schema name, p_table name, p_model_id text, p_model_revision text, p_pipeline_version text, p_dims integer DEFAULT NULL::integer, p_metric text DEFAULT NULL::text) RETURNS bigint
+request_refresh(p_source_id bigint, p_source_key jsonb) RETURNS uuid

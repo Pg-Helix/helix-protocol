@@ -256,31 +256,56 @@ components:
 
     JobContract:
       type: object
-      description: RFC-0003 job fields. Every job row carries all of these.
+      description: >
+        RFC-0003 job fields. Every job row carries all of these. source_id/source_key identify
+        which registered row this job is for (ADR-0006, helix-atlas: the prior shape carried only
+        source_digest, a hash, which cannot tell a worker which row to read via
+        helix_ai.get_job_input). source_generation is the row-incarnation fence (ADR-0006 decision
+        3): frozen at enqueue time like source_digest, it distinguishes a job issued against a row
+        from one issued against a since-deleted-and-reinserted row that happens to share the same
+        key and digest.
       required:
         - tenant
         - job_id
+        - source_id
+        - source_key
         - source_digest
+        - source_generation
         - pipeline_version
         - target_model
-        - deadline
         - attempts
         - lease_epoch
         - trace_id
       properties:
         tenant: { type: string }
         job_id: { type: string, format: uuid, description: Immutable; a retry reuses it. }
+        source_id: { type: string, description: helix_ai.source.id (bigint, serialized as string). }
+        source_key:
+          type: object
+          additionalProperties: { type: string }
+          description: >
+            One entry per registered key column, {column_name: column_value::text} — the same
+            shape helix_ai._source_key_expr/_row_key_jsonb build kernel-side.
         source_digest: { type: string }
+        source_generation: { type: integer, minimum: 1 }
         pipeline_version: { type: string }
         target_model: { type: string }
-        deadline: { type: string, format: date-time }
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: NULL until claim_job leases this job; gates re-leasing only, never enforced by killing the worker.
         attempts: { type: integer, minimum: 0 }
         lease_epoch: { type: integer, minimum: 0 }
         trace_id: { type: string }
 
     PublishRejectionCode:
       type: string
-      enum: [stale_lease, stale_source, model_mismatch, pipeline_mismatch, tombstoned]
+      enum: [stale_lease, stale_source, model_mismatch, pipeline_mismatch, tombstoned, dead_lettered]
+      description: >
+        dead_lettered (ADR-0006 decision 5) is returned when the job's dead_letter flag is set —
+        a worker whose job already exhausted its retry budget can no longer publish successfully,
+        even if it still presents the lease_epoch it last claimed under.
 
     # --- RFC-0004 chunk identity (reuses PseudoColumnStatus, not a separate lifecycle) ---
     ChunkIdentity:
