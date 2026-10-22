@@ -22,3 +22,21 @@ jobs:
           cp gen/go/types.go /tmp/types.before
           go generate ./...
           diff /tmp/types.before gen/go/types.go
+
+  sql-catalog-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the pinned helix-kernel commit this contract is validated against
+        uses: actions/checkout@v4
+        with:
+          repository: Pg-Helix/helix-kernel
+          ref: 5f5895e5d3efd6e623d4366ab871dc7e9d251f91
+          path: kernel
+      - name: Install the psql client the drift check connects with
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Build the pinned kernel and compare its installed SQL catalog against sql/api.md
+        run: |
+          KERNEL_DIR="$PWD/kernel" sh conformance/start-kernel-db.sh | tee /tmp/kerneldb.env
+          . /tmp/kerneldb.env
+          sh conformance/sql_catalog_drift.sh
