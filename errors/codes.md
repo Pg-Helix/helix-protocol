@@ -42,3 +42,16 @@ for a claimed job (RFC-0001/0002 never specified this contract; ADR-0006 decisio
 |---|---|---|
 | `lease_invalid` | `job_id`/`lease_epoch` do not identify a job the caller currently holds the lease on (wrong epoch, completed, or dead-lettered) | no |
 | `input_too_large` | Current source row exceeds the documented size cap (1 MiB via `pg_column_size`); rejected rather than silently truncated | no |
+
+## Workflow 2 ingestion/retrieval codes (ADR-0007, helix-atlas)
+
+Returned by the ingest, delete, permission and evidence-lookup operations.
+
+| Code | Meaning | Retryable |
+|---|---|---|
+| `unsupported_content_type` | Document `content_type` is not `text/plain` or `text/markdown` (remote URL, HTML, PDF/OCR are out of scope for this milestone) | no |
+| `content_too_large` | Document bytes, chunk count, or an individual chunk exceed the documented bound | no |
+| `chunk_limit_exceeded` | Chunking the document would exceed the documented maximum chunk count | no |
+| `citation_invalid` | A citation's chunk/document/generation/digest no longer matches current state (superseded, deleted, revoked, or fabricated) — rejected without disclosing any private text or metadata | no |
+
+Source of truth: `helix-atlas` `decisions/0007-workflow2-ingestion-retrieval-identity-and-authorization.md`.

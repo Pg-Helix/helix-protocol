@@ -99,6 +99,19 @@ digest happens to match again. `dead_lettered` (decision 5) rejects a job whose 
 exhausted, even if the epoch it presents is still current. See RFC-0003 §Publish and `errors/codes.md`
 for the outcome codes, which are the same codes surfaced over REST.
 
+## Workflow 2 (ADR-0007): no SQL signature changes
+
+ADR-0007 (helix-atlas) adds ingestion/retrieval/evidence-lookup REST endpoints
+(`openapi/openapi.yaml`) and a new `helix_cortex_api` database role, but makes
+**no change to any function above**. `cortex.chunk` is `register_source`'d
+like any other application table; chunk embeddings flow through the exact
+`claim_job` → `get_job_input` → `publish_result` sequence already documented
+here, unmodified. See ADR-0007 for the new `cortex`-owned schema, the role
+boundary between `helix_cortex_api` (HTTP-serving, no access to
+`claim_job`/`publish_result`/`get_job_input`) and `helix_worker` (unchanged),
+and the mapping between cortex's document/version identity and this schema's
+`source_id`/`generation`.
+
 ## Privilege boundary
 
 Only the narrow worker role, **`helix_worker`** (ADR-0006 decision 1 — the name RFC-0001/RFC-0003 cited

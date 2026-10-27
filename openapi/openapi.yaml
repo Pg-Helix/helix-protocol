@@ -8,9 +8,13 @@ info:
     PseudoColumnStatus and ChunkIdentity schemas are not served over HTTP —
     they are the canonical shape of the SQL/outbox contract defined in
     RFC-0003 and are kept here so one tool generates every consumer's types
-    from one source. Source of truth: helix-atlas rfcs/0003, rfcs/0004.
+    from one source. Source of truth: helix-atlas rfcs/0003, rfcs/0004,
+    decisions/0007 (Workflow 2 identity/ownership/versioning).
 servers:
   - url: /v1
+
+security:
+  - BearerAuth: []
 
 paths:
   /collections:
@@ -81,6 +85,184 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IngestStatus" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /collections/{collectionId}/documents:
+    post:
+      operationId: ingestDocument
+      summary: >
+        Ingest a UTF-8 text or Markdown document into a collection (ADR-0007/C2).
+        Requires the owner grant on the collection. Re-ingesting unchanged bytes
+        under the same chunker version is an idempotent no-op; changed bytes or
+        chunker version atomically replace the document's chunks. Remote-URL
+        ingestion, HTML extraction, PDF and OCR are not supported by this
+        operation and are rejected with unsupported_content_type.
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, name, content_type, content]
+              properties:
+                tenant: { type: string }
+                name: { type: string }
+                content_type:
+                  type: string
+                  enum: [text/plain, text/markdown]
+                content:
+                  type: string
+                  description: Raw UTF-8 document bytes. Bound by a documented byte-size limit; rejected (content_too_large) if exceeded, never silently truncated.
+      responses:
+        "201":
+          description: Created or unchanged (idempotent re-ingestion of identical bytes)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /collections/{collectionId}/documents/{documentId}:
+    get:
+      operationId: getDocument
+      summary: Document metadata and chunk readiness (requires owner or reader grant).
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteDocument
+      summary: >
+        Delete a document and tombstone its chunks (requires owner grant).
+        Takes effect immediately: the document's chunks stop matching search,
+        answers and evidence lookups as soon as this call returns.
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Deleted
+        default: { $ref: "#/components/responses/Error" }
+
+  /collections/{collectionId}/permissions:
+    get:
+      operationId: listPermissions
+      summary: List a collection's principal grants (requires owner grant).
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permissions]
+                properties:
+                  permissions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Permission" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: grantPermission
+      summary: >
+        Grant a principal access to a collection (requires owner grant).
+        Only an owner may grant or revoke access — this is authorized
+        separately from read access, never implied by tenant membership.
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Permission" }
+      responses:
+        "201":
+          description: Granted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Permission" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /collections/{collectionId}/permissions/{principal}:
+    delete:
+      operationId: revokePermission
+      summary: >
+        Revoke a principal's access to a collection (requires owner grant).
+        Takes effect immediately on search/answers/evidence lookup; does not
+        retroactively invalidate bytes already delivered to the caller before
+        this call returned.
+      parameters:
+        - name: collectionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: principal
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Revoked
+        default: { $ref: "#/components/responses/Error" }
+
+  /evidence/{chunkId}:
+    get:
+      operationId: getEvidence
+      summary: >
+        Resolve a citation to its authorized passage (RFC-0004). A citation is
+        a reference, never a capability: this re-checks the caller's current
+        tenant/ACL, the chunk's current source incarnation (generation+digest)
+        and readiness at lookup time, not from when the citation was issued.
+        Rejects a revoked, superseded, deleted or fabricated reference without
+        disclosing any private text or metadata.
+      parameters:
+        - name: chunkId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: tenant
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidenceResponse" }
         default: { $ref: "#/components/responses/Error" }
 
   /search:
@@ -179,6 +361,17 @@ paths:
         default: { $ref: "#/components/responses/Error" }
 
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Opaque bearer token, mapped server-side to one (principal, tenant)
+        pair. The local-fixture implementation (ADR-0007 decision 1) is a
+        generated, gitignored token file behind an explicit profile and
+        fails closed when unconfigured — never an "open" mode. A real
+        OIDC/JWT issuer is a deferred replacement behind the same scheme.
+
   responses:
     Error:
       description: Structured error (see ErrorResponse). Every non-2xx response uses this shape.
@@ -208,10 +401,11 @@ components:
 
     SearchResult:
       type: object
-      required: [chunk_id, score]
+      required: [chunk_id, document_id, score]
       properties:
         chunk_id: { type: string }
-        score: { type: number, format: double }
+        document_id: { type: string, description: cortex document id (stable across re-ingestion; distinct from helix_ai.source.id, ADR-0007). }
+        score: { type: number, format: double, description: Final score after RRF fusion and reranking. }
         snippet: { type: string }
 
     Citation:
@@ -219,17 +413,68 @@ components:
       required: [chunk_id, source_id, source_digest]
       properties:
         chunk_id: { type: string }
-        source_id: { type: string }
-        source_digest: { type: string }
+        source_id:
+          type: string
+          description: cortex document id this chunk belongs to (ADR-0007 — not helix_ai.source.id).
+        source_digest:
+          type: string
+          description: The document_version digest this citation was issued against — re-checked, not trusted, at evidence-lookup time.
 
     AnswerResponse:
       type: object
-      required: [answer, citations]
+      required: [answer, answer_method, citations]
       properties:
         answer: { type: string }
+        answer_method:
+          type: string
+          enum: [extractive]
+          description: >
+            Always "extractive" for this milestone: the answer is assembled
+            deterministically from authorized passage text, not generated by
+            a model. No semantic-quality claim is made — see helix-labs
+            workflow-2 fixtures for mechanics-only evaluation.
         citations:
           type: array
           items: { $ref: "#/components/schemas/Citation" }
+
+    Document:
+      type: object
+      required: [id, collection_id, tenant, name, content_type, byte_size, digest, chunker_version, status, created_at]
+      properties:
+        id: { type: string }
+        collection_id: { type: string }
+        tenant: { type: string }
+        name: { type: string }
+        content_type: { type: string, enum: [text/plain, text/markdown] }
+        byte_size: { type: integer }
+        digest: { type: string, description: Content digest of the active document_version. }
+        chunker_version: { type: string }
+        status:
+          $ref: "#/components/schemas/PseudoColumnStatus"
+          description: Aggregate readiness across the document's current chunks (ready only once every chunk is ready; ADR-0007).
+        chunk_count: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    Permission:
+      type: object
+      required: [principal, role]
+      properties:
+        principal: { type: string }
+        role:
+          type: string
+          enum: [owner, reader]
+          description: owner may ingest/delete/grant/revoke; reader may search/read/resolve evidence only.
+
+    EvidenceResponse:
+      type: object
+      required: [chunk_id, document_id, document_version_digest, text]
+      properties:
+        chunk_id: { type: string }
+        document_id: { type: string }
+        document_name: { type: string }
+        document_version_digest: { type: string }
+        chunk_index: { type: integer }
+        text: { type: string }
 
     Model:
       type: object
@@ -325,8 +570,10 @@ components:
         code:
           type: string
           description: >
-            Stable error code. Includes PublishRejectionCode values plus
-            request-level codes: invalid_argument, not_found, unauthorized,
-            forbidden, tenant_mismatch, rate_limited, internal.
+            Stable error code. Includes PublishRejectionCode values; request-
+            level codes (invalid_argument, not_found, unauthorized, forbidden,
+            tenant_mismatch, rate_limited, internal); and Workflow 2 codes
+            (ADR-0007): unsupported_content_type, content_too_large,
+            chunk_limit_exceeded, citation_invalid.
         message: { type: string }
         trace_id: { type: string }
