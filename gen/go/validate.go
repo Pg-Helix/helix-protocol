@@ -40,20 +40,21 @@ func (j JobContract) Validate() error {
 	return nil
 }
 
-// Validate checks IngestDocumentJSONBody's required fields and content_type
-// enum (ADR-0007/C2). tenant is intentionally still checked here even though
-// the authenticated caller's tenant is the only one ever trusted server-side
-// — a request that supplies a conflicting tenant is rejected as
-// tenant_mismatch by the server, not by this function, which only checks
-// shape.
+// Validate checks IngestDocumentJSONBody's required fields (ADR-0007/C2).
+// tenant is intentionally still checked here even though the authenticated
+// caller's tenant is the only one ever trusted server-side — a request that
+// supplies a conflicting tenant is rejected as tenant_mismatch by the
+// server, not by this function, which only checks shape. content_type's
+// enum is deliberately NOT checked here: errors/codes.md gives an
+// unsupported content type its own stable code (unsupported_content_type),
+// and the server's store layer is what produces it -- duplicating the
+// check here would instead surface it as a generic invalid_argument.
 func (b IngestDocumentJSONBody) Validate() error {
 	switch {
 	case b.Tenant == "":
 		return fmt.Errorf("ingest document: tenant is required")
 	case b.Name == "":
 		return fmt.Errorf("ingest document: name is required")
-	case b.ContentType != IngestDocumentJSONBodyContentTypeTextplain && b.ContentType != IngestDocumentJSONBodyContentTypeTextmarkdown:
-		return fmt.Errorf("ingest document: content_type must be text/plain or text/markdown, got %q", b.ContentType)
 	case b.Content == "":
 		return fmt.Errorf("ingest document: content is required")
 	}
