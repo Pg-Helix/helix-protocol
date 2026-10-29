@@ -118,7 +118,74 @@ func TestAnswerResponseValid(t *testing.T) {
 	if ans.Answer == "" {
 		t.Fatal("answer must not be empty")
 	}
+	if ans.AnswerMethod != protocol.Extractive {
+		t.Fatalf("answer_method = %q, want %q", ans.AnswerMethod, protocol.Extractive)
+	}
 	if len(ans.Citations) != 1 || ans.Citations[0].ChunkId == "" {
 		t.Fatalf("expected one well-formed citation, got %+v", ans.Citations)
+	}
+}
+
+// TestDocumentValid and the three below it are ADR-0007/Workflow-2 schemas:
+// Document, Permission and EvidenceResponse. Same round-trip pattern as the
+// RFC-0003 fixtures above.
+func TestDocumentValid(t *testing.T) {
+	var doc protocol.Document
+	if err := json.Unmarshal(load(t, "document_valid.json"), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("Validate() on a genuinely valid fixture: %v", err)
+	}
+	if doc.Status != protocol.Ready {
+		t.Fatalf("status = %q, want %q", doc.Status, protocol.Ready)
+	}
+	if doc.ChunkCount == nil || *doc.ChunkCount != 5 {
+		t.Fatalf("chunk_count = %v, want 5", doc.ChunkCount)
+	}
+
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var roundTripped protocol.Document
+	if err := json.Unmarshal(b, &roundTripped); err != nil {
+		t.Fatalf("unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(doc, roundTripped) {
+		t.Fatalf("round-trip mismatch:\n got %+v\nwant %+v", roundTripped, doc)
+	}
+}
+
+func TestPermissionOwnerValid(t *testing.T) {
+	var p protocol.Permission
+	if err := json.Unmarshal(load(t, "permission_owner_valid.json"), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("Validate() on a genuinely valid fixture: %v", err)
+	}
+	if p.Role != protocol.Owner {
+		t.Fatalf("role = %q, want %q", p.Role, protocol.Owner)
+	}
+}
+
+func TestPermissionValidateRejectsBadRole(t *testing.T) {
+	p := protocol.Permission{Principal: "mallory", Role: "superuser"}
+	if err := p.Validate(); err == nil {
+		t.Fatal("Validate() must reject an unrecognized role, got nil error")
+	}
+}
+
+func TestEvidenceResponseValid(t *testing.T) {
+	var e protocol.EvidenceResponse
+	if err := json.Unmarshal(load(t, "evidence_valid.json"), &e); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := e.Validate(); err != nil {
+		t.Fatalf("Validate() on a genuinely valid fixture: %v", err)
+	}
+	if e.Text == "" {
+		t.Fatal("text must not be empty")
 	}
 }

@@ -1,5 +1,6 @@
 {
   "answer": "Refunds are processed within 5 business days.",
+  "answer_method": "extractive",
   "citations": [
     { "chunk_id": "chunk-001", "source_id": "doc-refund-policy", "source_digest": "sha256:ab12cd34" }
   ]
